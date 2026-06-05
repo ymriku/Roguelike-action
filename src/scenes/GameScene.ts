@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+<<<<<<< HEAD
 import { Player, PlayerAttackHitbox } from '../entities/Player';
 import { Enemy, enemySpriteKeys } from '../entities/Enemy';
 import { Boss } from '../entities/Boss';
@@ -7,6 +8,12 @@ import { Items } from '../items/Item';
 import { MetaProgression } from '../systems/MetaProgression';
 import { ClassDefinition, classList, classMap } from '../classes';
 import { getPurchasedSkills } from '../skills/SkillTree';
+=======
+import { ClassDefinition, getClassDefinition } from '../classes';
+import { Player, PlayerAttackPayload } from '../entities/Player';
+import { Slime } from '../entities/Slime';
+import { InputAction, InputSystem } from '../systems/InputSystem';
+>>>>>>> f2a20ba (Add class and input systems)
 import {
   EnemySpawnDefinition,
   GeneratedStage,
@@ -18,6 +25,13 @@ import {
   generateStage,
   readSeedFromLocation,
 } from '../systems/StageGenerator';
+
+const SAMURAI_SPRITE_URLS = {
+  idle: new URL('../../assets/sprites/player/samurai/idle.png', import.meta.url).toString(),
+  run: new URL('../../assets/sprites/player/samurai/run.png', import.meta.url).toString(),
+  attack: new URL('../../assets/sprites/player/samurai/attack.png', import.meta.url).toString(),
+  dash: new URL('../../assets/sprites/player/samurai/dash.png', import.meta.url).toString(),
+};
 
 type DamagePopupEvent = {
   damage: number;
@@ -44,29 +58,39 @@ export class GameScene extends Phaser.Scene {
   private stageText?: Phaser.GameObjects.Text;
   private classText?: Phaser.GameObjects.Text;
   private seedText?: Phaser.GameObjects.Text;
+<<<<<<< HEAD
   private metaText?: Phaser.GameObjects.Text;
   private goalDistanceText?: Phaser.GameObjects.Text;
   private inventoryCountText?: Phaser.GameObjects.Text;
   private playerSpecialBarBack?: Phaser.GameObjects.Rectangle;
   private playerSpecialBarFill?: Phaser.GameObjects.Rectangle;
   private gameStateBackground?: Phaser.GameObjects.Rectangle;
+=======
+  private skillCooldownUi: Array<{
+    id: string;
+    label: Phaser.GameObjects.Text;
+    back: Phaser.GameObjects.Rectangle;
+    fill: Phaser.GameObjects.Rectangle;
+    value: Phaser.GameObjects.Text;
+  }> = [];
+>>>>>>> f2a20ba (Add class and input systems)
   private gameStateText?: Phaser.GameObjects.Text;
   private restartText?: Phaser.GameObjects.Text;
   private nextStageText?: Phaser.GameObjects.Text;
   private redFlash?: Phaser.GameObjects.Rectangle;
+<<<<<<< HEAD
   private remainingEnemies = 0;
+=======
+  private inputSystem?: InputSystem;
+  private selectedClass?: ClassDefinition;
+  private remainingSlimes = 0;
+>>>>>>> f2a20ba (Add class and input systems)
   private stageIndex = 1;
   private runSeed = '';
   private selectedClass?: ClassDefinition;
   private inventory?: Inventory;
   private isGameOver = false;
   private isStageClear = false;
-  private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd?: {
-    A: Phaser.Input.Keyboard.Key;
-    D: Phaser.Input.Keyboard.Key;
-    J: Phaser.Input.Keyboard.Key;
-  };
   private restartKey?: Phaser.Input.Keyboard.Key;
   private inventoryKey?: Phaser.Input.Keyboard.Key;
   private shopKey?: Phaser.Input.Keyboard.Key;
@@ -79,6 +103,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
+<<<<<<< HEAD
     this.createParticleTextures();
     this.createPlaceholderPlayerTexture();
     this.createPlaceholderEnemyTexture();
@@ -108,9 +133,18 @@ export class GameScene extends Phaser.Scene {
     g.fillRect(0, 0, 6, 6);
     g.generateTexture('fire', 6, 6);
     g.destroy();
+=======
+    this.load.spritesheet('samurai-idle', SAMURAI_SPRITE_URLS.idle, { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet('samurai-run', SAMURAI_SPRITE_URLS.run, { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet('samurai-attack', SAMURAI_SPRITE_URLS.attack, { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet('samurai-dash', SAMURAI_SPRITE_URLS.dash, { frameWidth: 32, frameHeight: 32 });
+    this.createPlaceholderSlimeTexture();
+>>>>>>> f2a20ba (Add class and input systems)
   }
 
   create(data?: GameSceneData): void {
+    this.createPlayerAnimations();
+
     this.stageIndex = data?.stageIndex ?? 1;
     this.runSeed = data?.runSeed ?? readSeedFromLocation(window.location) ?? createRunSeed();
     this.selectedClass = classMap[data?.selectedClassId ?? 'samurai'];
@@ -126,6 +160,7 @@ export class GameScene extends Phaser.Scene {
     const platforms = this.createStageBlockout(this.currentStage.platforms);
     this.createGoal(this.currentStage);
 
+<<<<<<< HEAD
     this.cursors = this.input.keyboard?.createCursorKeys();
     this.wasd = this.input.keyboard?.addKeys('A,D,J') as {
       A: Phaser.Input.Keyboard.Key;
@@ -135,13 +170,18 @@ export class GameScene extends Phaser.Scene {
     this.inventoryKey = this.input.keyboard?.addKey('I');
     this.shopKey = this.input.keyboard?.addKey('M');
     this.skillKey = this.input.keyboard?.addKey('K');
+=======
+    this.inputSystem = new InputSystem(this);
+    this.selectedClass = getClassDefinition('samurai');
+>>>>>>> f2a20ba (Add class and input systems)
     this.restartKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this.specialKey = this.input.keyboard?.addKey('U');
 
-    if (!this.cursors || !this.wasd) {
-      throw new Error('Keyboard input is required for the Phase1 prototype.');
+    if (!this.inputSystem || !this.selectedClass) {
+      throw new Error('Player class input is required for the Phase1 prototype.');
     }
 
+<<<<<<< HEAD
     this.player = new Player(
       this,
       start.x,
@@ -155,6 +195,9 @@ export class GameScene extends Phaser.Scene {
       },
       this.selectedClass ?? classMap.samurai,
     );
+=======
+    this.player = new Player(this, start.x, start.y, this.inputSystem, this.selectedClass);
+>>>>>>> f2a20ba (Add class and input systems)
 
     this.createStageTraps(this.currentStage.trapSpawns);
     this.applyPurchasedSkills();
@@ -172,6 +215,7 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.goalZone, this.handleGoalReached, undefined, this);
 
     this.events.off('player-attack', this.handlePlayerAttack, this);
+    this.events.off('player-counter', this.handlePlayerCounter, this);
     this.events.off('player-damaged', this.handlePlayerDamaged, this);
     this.events.off('enemy-damaged', this.handleEnemyDamaged, this);
     this.events.off('player-dead', this.handlePlayerDead, this);
@@ -180,6 +224,7 @@ export class GameScene extends Phaser.Scene {
     this.game.events.off('use-item', this.handleUseItem, this);
     this.game.events.off('skill-unlocked', this.handleSkillUnlocked, this);
     this.events.on('player-attack', this.handlePlayerAttack, this);
+    this.events.on('player-counter', this.handlePlayerCounter, this);
     this.events.on('player-damaged', this.handlePlayerDamaged, this);
     this.events.on('enemy-damaged', this.handleEnemyDamaged, this);
     this.events.on('player-dead', this.handlePlayerDead, this);
@@ -194,14 +239,19 @@ export class GameScene extends Phaser.Scene {
 
     this.addControlsText();
     this.addHud();
+<<<<<<< HEAD
     this.createItemSpawns(this.currentStage.itemSpawns);
     this.createTouchControls();
     this.createMenuButtons();
+=======
+    this.addTouchControls();
+>>>>>>> f2a20ba (Add class and input systems)
     this.updateHud();
   }
 
   update(time: number): void {
     if (this.isGameOver && this.restartKey && Phaser.Input.Keyboard.JustDown(this.restartKey)) {
+      this.inputSystem?.endFrame();
       this.restartStage();
       return;
     }
@@ -234,20 +284,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateHud();
-  }
-
-  private createPlaceholderPlayerTexture(): void {
-    const graphics = this.make.graphics({ x: 0, y: 0 }, false);
-
-    // 仮プレイヤースプライト。後でアニメーション付きスプライトシートに差し替える。
-    graphics.fillStyle(0xf2f4f8);
-    graphics.fillRect(10, 6, 28, 42);
-    graphics.fillStyle(0x53a6ff);
-    graphics.fillRect(14, 10, 20, 12);
-    graphics.fillStyle(0x101820);
-    graphics.fillRect(30, 15, 4, 4);
-    graphics.generateTexture('player-placeholder', 48, 56);
-    graphics.destroy();
+    this.inputSystem?.endFrame();
   }
 
   private createPlaceholderEnemyTexture(): void {
@@ -264,6 +301,7 @@ export class GameScene extends Phaser.Scene {
     graphics.destroy();
   }
 
+<<<<<<< HEAD
   private loadOptionalTexture(key: string, path: string): void {
     const image = new Image();
     image.onload = () => {
@@ -350,10 +388,15 @@ export class GameScene extends Phaser.Scene {
 
     const frameNames = texture.getFrameNames().filter((name) => name !== '__BASE');
     if (frameNames.length === 0) {
+=======
+  private createPlayerAnimations(): void {
+    if (this.anims.exists('samurai-idle')) {
+>>>>>>> f2a20ba (Add class and input systems)
       return;
     }
 
     this.anims.create({
+<<<<<<< HEAD
       key: animationIdleKey,
       frames: [{ key: textureKey, frame: frameNames[0] }],
       frameRate: 1,
@@ -372,6 +415,31 @@ export class GameScene extends Phaser.Scene {
       frameRate: 10,
       repeat: -1,
     });
+=======
+      key: 'samurai-idle',
+      frames: this.anims.generateFrameNumbers('samurai-idle', { start: 0, end: 3 }),
+      frameRate: 5,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: 'samurai-run',
+      frames: this.anims.generateFrameNumbers('samurai-run', { start: 0, end: 5 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+    this.anims.create({
+      key: 'samurai-attack',
+      frames: this.anims.generateFrameNumbers('samurai-attack', { start: 0, end: 5 }),
+      frameRate: 18,
+      repeat: 0,
+    });
+    this.anims.create({
+      key: 'samurai-dash',
+      frames: this.anims.generateFrameNumbers('samurai-dash', { start: 0, end: 3 }),
+      frameRate: 16,
+      repeat: -1,
+    });
+>>>>>>> f2a20ba (Add class and input systems)
   }
 
   private createStageBlockout(
@@ -532,6 +600,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addControlsText(): void {
+<<<<<<< HEAD
     const controlsBackground = this.add.rectangle(480, 32, 920, 34, 0x0b1118, 0.72);
     controlsBackground.setScrollFactor(0);
     controlsBackground.setDepth(45);
@@ -541,6 +610,18 @@ export class GameScene extends Phaser.Scene {
       fontFamily: 'DotGothic16, monospace',
       fontSize: '14px',
     });
+=======
+    const text = this.add.text(
+      16,
+      16,
+      'A/D or Arrows: Move  Space/Up: Jump  Shift: Dash  J/Z: Skill1  Hold K/X: Skill2  L/C: Ultimate  R: Restart',
+      {
+        color: '#d9e2ec',
+        fontFamily: 'monospace',
+        fontSize: '14px',
+      },
+    );
+>>>>>>> f2a20ba (Add class and input systems)
 
     text.setScrollFactor(0);
     text.setDepth(46);
@@ -612,6 +693,7 @@ export class GameScene extends Phaser.Scene {
     this.seedText.setScrollFactor(0);
     this.seedText.setDepth(52);
 
+<<<<<<< HEAD
     this.metaText = this.add.text(26, 146, '', {
       color: '#ffd166',
       fontFamily: 'DotGothic16, monospace',
@@ -639,6 +721,9 @@ export class GameScene extends Phaser.Scene {
     this.gameStateBackground = this.add.rectangle(480, 160, 560, 84, 0x071623, 0.72);
     this.gameStateBackground.setScrollFactor(0);
     this.gameStateBackground.setDepth(79);
+=======
+    this.skillCooldownUi = this.createSkillCooldownUi();
+>>>>>>> f2a20ba (Add class and input systems)
 
     this.gameStateText = this.add.text(480, 160, '', {
       align: 'center',
@@ -671,6 +756,7 @@ export class GameScene extends Phaser.Scene {
     this.stageText.setText(`Stage: ${this.stageIndex}`);
     this.classText?.setText(`Class: ${this.selectedClass?.name ?? '侍'}`);
     this.seedText.setText(`Seed: ${this.runSeed}`);
+<<<<<<< HEAD
     this.metaText?.setText(`Meta: ${MetaProgression.getPoints()}`);
 
     if (this.currentStage) {
@@ -782,18 +868,47 @@ export class GameScene extends Phaser.Scene {
   private handlePlayerAttack(hitbox: PlayerAttackHitbox): void {
     if (!this.player || !this.enemies) {
       hitbox.destroy();
+=======
+    this.updateSkillCooldownUi();
+  }
+
+  private handlePlayerAttack(payload: PlayerAttackPayload): void {
+    if (!this.slimes || !this.player) {
+      payload.hitbox.destroy();
+>>>>>>> f2a20ba (Add class and input systems)
       return;
     }
 
-    this.showAttackEffect(hitbox.x, hitbox.y);
+    this.resolvePlayerAttack(payload);
+  }
 
+  private handlePlayerCounter(payload: PlayerAttackPayload): void {
+    this.resolvePlayerAttack(payload);
+    this.showCounterEffect(payload.hitbox.x, payload.hitbox.y);
+  }
+
+  private resolvePlayerAttack(payload: PlayerAttackPayload): void {
+    if (!this.slimes || !this.player) {
+      payload.hitbox.destroy();
+      return;
+    }
+
+    this.showAttackEffect(payload.hitbox.x, payload.hitbox.y, payload.effectColor);
+
+<<<<<<< HEAD
     const hitEnemies = new Set<Enemy>();
     const overlap = this.physics.add.overlap(hitbox, this.enemies, (_attack, target) => {
       if (!(target instanceof Enemy) || !this.player || hitEnemies.has(target)) {
+=======
+    const hitSlimes = new Set<Slime>();
+    const overlap = this.physics.add.overlap(payload.hitbox, this.slimes, (_attack, target) => {
+      if (!(target instanceof Slime) || !this.player || hitSlimes.has(target)) {
+>>>>>>> f2a20ba (Add class and input systems)
         return;
       }
 
       const direction = Math.sign(target.x - this.player.x) || this.player.getFacing();
+<<<<<<< HEAD
 
       const classId = this.selectedClass?.id ?? 'samurai';
 
@@ -863,11 +978,15 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.player.addSpecialCharge(12);
+=======
+      hitSlimes.add(target);
+      target.takeDamage(payload.damage, direction * payload.knockbackX, payload.knockbackY, this.time.now);
+>>>>>>> f2a20ba (Add class and input systems)
     });
 
-    this.time.delayedCall(this.player.getAttackDurationMs(), () => {
+    this.time.delayedCall(payload.durationMs, () => {
       overlap.destroy();
-      hitbox.destroy();
+      payload.hitbox.destroy();
     });
   }
 
@@ -1168,8 +1287,8 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private showAttackEffect(x: number, y: number): void {
-    const effect = this.add.ellipse(x, y, 64, 38, 0xb8f3ff, 0.34);
+  private showAttackEffect(x: number, y: number, color = 0xb8f3ff): void {
+    const effect = this.add.ellipse(x, y, 64, 38, color, 0.34);
     effect.setDepth(35);
 
     // small particle burst
@@ -1200,6 +1319,96 @@ export class GameScene extends Phaser.Scene {
         effect.destroy();
       },
     });
+  }
+
+  private showCounterEffect(x: number, y: number): void {
+    const ring = this.add.circle(x, y, 28, 0xa7f3d0, 0.26);
+    ring.setDepth(36);
+
+    this.tweens.add({
+      targets: ring,
+      alpha: 0,
+      scaleX: 1.8,
+      scaleY: 1.8,
+      duration: 180,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        ring.destroy();
+      },
+    });
+  }
+
+  private createSkillCooldownUi(): Array<{
+    id: string;
+    label: Phaser.GameObjects.Text;
+    back: Phaser.GameObjects.Rectangle;
+    fill: Phaser.GameObjects.Rectangle;
+    value: Phaser.GameObjects.Text;
+  }> {
+    const cooldowns = this.player?.getSkillCooldowns() ?? [];
+    const colors = [0x93c5fd, 0x86efac, 0xfca5a5];
+    const rows = cooldowns.map((cooldown, index) => ({
+      id: cooldown.id,
+      label: cooldown.label,
+      y: 132 + index * 22,
+      color: colors[index] ?? 0xe2e8f0,
+    }));
+
+    return rows.map((row) => {
+      const label = this.add.text(16, row.y - 8, row.label, {
+        color: '#e2e8f0',
+        fontFamily: 'monospace',
+        fontSize: '13px',
+      });
+      const back = this.add.rectangle(82, row.y, 96, 10, 0x1f2933);
+      const fill = this.add.rectangle(82, row.y, 96, 8, row.color);
+      const value = this.add.text(136, row.y - 8, '', {
+        color: '#cbd5e1',
+        fontFamily: 'monospace',
+        fontSize: '13px',
+      });
+
+      label.setScrollFactor(0);
+      back.setScrollFactor(0);
+      fill.setScrollFactor(0);
+      value.setScrollFactor(0);
+      label.setDepth(52);
+      back.setDepth(52);
+      fill.setDepth(53);
+      value.setDepth(52);
+      back.setOrigin(0, 0.5);
+      fill.setOrigin(0, 0.5);
+
+      return {
+        id: row.id,
+        label,
+        back,
+        fill,
+        value,
+      };
+    });
+  }
+
+  private updateSkillCooldownUi(): void {
+    if (!this.player) {
+      return;
+    }
+
+    const cooldowns = this.player.getSkillCooldowns();
+
+    for (const row of this.skillCooldownUi) {
+      const cooldown = cooldowns.find((entry) => entry.id === row.id);
+
+      if (!cooldown) {
+        continue;
+      }
+
+      const remainingMs = Math.max(0, cooldown.readyAt - this.time.now);
+      const readyRatio = 1 - Phaser.Math.Clamp(remainingMs / cooldown.cooldownMs, 0, 1);
+      row.fill.setSize(96 * readyRatio, 8);
+      row.value.setText(remainingMs > 0 ? `${Math.ceil(remainingMs / 100) / 10}s` : 'Ready');
+      row.value.setColor(remainingMs > 0 ? '#cbd5e1' : '#f8fafc');
+    }
   }
 
   private showRestartButton(): void {
@@ -1255,6 +1464,7 @@ export class GameScene extends Phaser.Scene {
     return button;
   }
 
+<<<<<<< HEAD
   private applyPurchasedSkills(): void {
     if (!this.player || !this.selectedClass) {
       return;
@@ -1264,6 +1474,86 @@ export class GameScene extends Phaser.Scene {
     purchased.forEach((skillId) => {
       this.player?.applySkill(skillId);
     });
+=======
+  private addTouchControls(): void {
+    if (!this.inputSystem || !this.selectedClass) {
+      return;
+    }
+
+    const skills = this.selectedClass.skills;
+
+    this.createTouchButton('left', '<', 58, 464, 60, 56, 0x263447);
+    this.createTouchButton('right', '>', 132, 464, 60, 56, 0x263447);
+    this.createTouchButton('jump', 'JMP', 820, 464, 72, 56, 0x244c3a);
+    this.createTouchButton('dash', 'DASH', 900, 464, 72, 56, 0x214b63);
+    this.createTouchButton('skill1', 'S1', 642, 472, 58, 48, 0x3d355f, skills.skill1.name);
+    this.createTouchButton('skill2', 'S2', 708, 472, 58, 48, 0x3c4a66, skills.skill2.name);
+    this.createTouchButton('ultimate', 'ULT', 774, 472, 58, 48, 0x683a3a, skills.ultimate.name);
+  }
+
+  private createTouchButton(
+    action: InputAction,
+    label: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    color: number,
+    tooltip?: string,
+  ): void {
+    if (!this.inputSystem) {
+      return;
+    }
+
+    const back = this.add.rectangle(x, y, width, height, color, 0.72);
+    const text = this.add.text(x, y, label, {
+      align: 'center',
+      color: '#f8fafc',
+      fontFamily: 'monospace',
+      fontSize: label.length > 3 ? '12px' : '14px',
+      fontStyle: 'bold',
+    });
+
+    back.setScrollFactor(0);
+    text.setScrollFactor(0);
+    back.setDepth(68);
+    text.setDepth(69);
+    text.setOrigin(0.5);
+    back.setInteractive({ useHandCursor: true });
+
+    const press = (): void => {
+      this.inputSystem?.press(action);
+      back.setAlpha(0.96);
+    };
+    const release = (): void => {
+      this.inputSystem?.release(action);
+      back.setAlpha(0.72);
+    };
+
+    back.on('pointerdown', press);
+    back.on('pointerup', release);
+    back.on('pointerout', release);
+    back.on('pointerupoutside', release);
+
+    if (!tooltip) {
+      return;
+    }
+
+    const hint = this.add.text(x, y - height / 2 - 8, tooltip, {
+      align: 'center',
+      color: '#cbd5e1',
+      fontFamily: 'monospace',
+      fontSize: '10px',
+      wordWrap: { width: 96 },
+    });
+    hint.setOrigin(0.5, 1);
+    hint.setScrollFactor(0);
+    hint.setDepth(69);
+    hint.setAlpha(0);
+
+    back.on('pointerover', () => hint.setAlpha(1));
+    back.on('pointerout', () => hint.setAlpha(0));
+>>>>>>> f2a20ba (Add class and input systems)
   }
 
   private restartStage(): void {
