@@ -46,7 +46,7 @@ export class SkillTreeScene extends Phaser.Scene {
       const prereqOk = canUnlockSkill(this.selectedClassId, node.id);
       const label = isPurchased ? 'Purchased' : prereqOk ? 'Unlock' : 'Locked';
       const color = isPurchased ? '#4ade80' : prereqOk ? '#101820' : '#94a3b8';
-      const bg = isPurchased ? '#164e3a' : prereqOk ? '#2563eb' : '#1e293b';
+      const bg = isPurchased ? 0x164e3a : prereqOk ? 0x2563eb : 0x1e293b;
 
       this.add.rectangle(480, y, 700, 54, bg, 0.9).setOrigin(0.5).setDepth(81);
       this.add.text(170, y - 10, node.name, { fontFamily: 'DotGothic16, monospace', fontSize: '16px', color: '#f8fafc' }).setOrigin(0, 0.5).setDepth(82);

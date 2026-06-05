@@ -148,7 +148,7 @@ const ENEMY_DAMAGE_INVULNERABILITY_MS = 180;
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
   protected readonly config: EnemyConfig;
-  protected readonly type: EnemyType;
+  protected readonly enemyType: EnemyType;
   private hp: number;
   private damageReadyAt = 0;
   private isDead = false;
@@ -161,7 +161,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
   constructor(scene: Phaser.Scene, x: number, y: number, type: EnemyType) {
     super(scene, x, y, 'enemy-placeholder');
-    this.type = type;
+    this.enemyType = type;
     this.config = ENEMY_CONFIGS[type];
     this.hp = this.config.hp;
 
@@ -369,21 +369,21 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
       return;
     }
 
-    if (this.type === 'elite') {
+    if (this.enemyType === 'elite') {
       if (chance < 0.24) {
         this.scene.events.emit('item-drop', { x: this.x, y: this.y, itemId: Items.strengthElixir.id });
         return;
       }
     }
 
-    if (this.type === 'archer' || this.type === 'flyer') {
+    if (this.enemyType === 'archer' || this.enemyType === 'flyer') {
       if (chance < 0.18) {
         this.scene.events.emit('item-drop', { x: this.x, y: this.y, itemId: Items.speedTonic.id });
         return;
       }
     }
 
-    if (this.type === 'goblin') {
+    if (this.enemyType === 'goblin') {
       if (chance < 0.16) {
         this.scene.events.emit('item-drop', { x: this.x, y: this.y, itemId: Items.strengthElixir.id });
         return;

@@ -53,7 +53,7 @@ export class ClassSelectionScene extends Phaser.Scene {
       }
     });
 
-    this.add.text(480, 560, 'Click a class card to select. Use A/D to move, Space to jump, Shift to dash, J to attack.', {
+    this.add.text(480, 560, 'Click a class card to select. A/D move, Space jump, Shift dash, J/K/L skills.', {
       fontFamily: 'DotGothic16, monospace',
       fontSize: '14px',
       color: '#94a3b8',
@@ -67,28 +67,28 @@ export class ClassSelectionScene extends Phaser.Scene {
       fontSize: '20px',
       color: '#f8fafc',
     });
-    const hp = this.add.text(-130, -18, `HP: ${classDef.hp}`, {
+    const hp = this.add.text(-130, -18, `HP: ${classDef.maxHp}`, {
       fontFamily: 'DotGothic16, monospace',
       fontSize: '14px',
       color: '#d9e2ec',
     });
-    const attack = this.add.text(-130, 2, `ATK: ${classDef.attack}`, {
+    const speed = this.add.text(-130, 2, `SPD: ${classDef.moveSpeed}`, {
       fontFamily: 'DotGothic16, monospace',
       fontSize: '14px',
       color: '#d9e2ec',
     });
-    const speed = this.add.text(-130, 22, `SPD: ${classDef.speed.toFixed(2)}`, {
+    const jump = this.add.text(-130, 22, `JMP: ${classDef.jumpPower}`, {
       fontFamily: 'DotGothic16, monospace',
       fontSize: '14px',
       color: '#d9e2ec',
     });
-    const special = this.add.text(-130, 44, classDef.specialName, {
+    const special = this.add.text(-130, 44, classDef.skills.ultimate.name, {
       fontFamily: 'DotGothic16, monospace',
       fontSize: '12px',
       color: '#94a3b8',
     });
 
-    const card = this.add.container(x, y, [base, title, hp, attack, speed, special]);
+    const card = this.add.container(x, y, [base, title, hp, speed, jump, special]);
     card.setSize(280, 130);
     card.setInteractive({ useHandCursor: true });
     card.on('pointerdown', () => {
