@@ -3,6 +3,7 @@ import { ClassDefinition } from './ClassDefinition';
 export const Samurai: ClassDefinition = {
   id: 'samurai',
   name: 'Samurai',
+  description: 'Balanced katana fighter with clean mobility, quick strings, and a defensive counter.',
   maxHp: 100,
   moveSpeed: 240,
   jumpPower: 520,

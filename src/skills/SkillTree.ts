@@ -1,3 +1,6 @@
+import { PlayerClassId } from '../classes';
+import { SaveSystem } from '../systems/SaveSystem';
+
 export type SkillNode = {
   id: string;
   name: string;
@@ -8,15 +11,9 @@ export type SkillNode = {
 
 export type SkillTree = Record<string, SkillNode>;
 
-const SKILL_PURCHASE_KEY = 'roguelike_skill_state_v1';
-
 export const SamuraiSkillTree: SkillTree = {
   iaigiri: { id: 'iaigiri', name: '居合強化', cost: 2, description: '居合の威力が上がる', children: ['counterBoost'] },
   counterBoost: { id: 'counterBoost', name: 'カウンターブースト', cost: 3, description: 'カウンター成功でバフを得る' },
-};
-
-export const SkillTrees: Record<string, SkillTree> = {
-  samurai: SamuraiSkillTree,
 };
 
 export const BeastSkillTree: SkillTree = {
@@ -55,38 +52,34 @@ export const MachinistSkillTree: SkillTree = {
   overdrive: { id: 'overdrive', name: 'オーバードライブ', cost: 4, description: '一定時間攻撃速度が上がる' },
 };
 
-// マップに追加
-SkillTrees['beast'] = BeastSkillTree;
-SkillTrees['pyromancer'] = PyromancerSkillTree;
-SkillTrees['frostlancer'] = FrostLancerSkillTree;
-SkillTrees['dragonblood'] = DragonbloodSkillTree;
-SkillTrees['winddancer'] = WindDancerSkillTree;
-SkillTrees['machinist'] = MachinistSkillTree;
-
-export const getPurchasedSkills = (classId: string): string[] => {
-  const raw = localStorage.getItem(`${SKILL_PURCHASE_KEY}_${classId}`);
-  return raw ? raw.split(',').filter(Boolean) : [];
+export const SkillTrees: Record<PlayerClassId, SkillTree> = {
+  'beast-warrior': BeastSkillTree,
+  'dragoonblood-knight': DragonbloodSkillTree,
+  'frost-lancer': FrostLancerSkillTree,
+  machinist: MachinistSkillTree,
+  pyromancer: PyromancerSkillTree,
+  samurai: SamuraiSkillTree,
 };
 
-export const isSkillPurchased = (classId: string, skillId: string): boolean => {
+export const getPurchasedSkills = (classId: PlayerClassId): string[] => {
+  return SaveSystem.getPurchasedSkills(classId);
+};
+
+export const isSkillPurchased = (classId: PlayerClassId, skillId: string): boolean => {
   return getPurchasedSkills(classId).includes(skillId);
 };
 
-export const unlockSkill = (classId: string, skillId: string): boolean => {
-  const purchased = new Set(getPurchasedSkills(classId));
-  if (purchased.has(skillId)) return false;
-  purchased.add(skillId);
-  localStorage.setItem(`${SKILL_PURCHASE_KEY}_${classId}`, Array.from(purchased).join(','));
-  return true;
+export const unlockSkill = (classId: PlayerClassId, skillId: string): boolean => {
+  return SaveSystem.unlockSkill(classId, skillId);
 };
 
-export const getSkillPrerequisite = (classId: string, skillId: string): SkillNode | undefined => {
+export const getSkillPrerequisite = (classId: PlayerClassId, skillId: string): SkillNode | undefined => {
   const tree = SkillTrees[classId];
   if (!tree) return undefined;
   return Object.values(tree).find((skill) => skill.children?.includes(skillId));
 };
 
-export const canUnlockSkill = (classId: string, skillId: string): boolean => {
+export const canUnlockSkill = (classId: PlayerClassId, skillId: string): boolean => {
   const prereq = getSkillPrerequisite(classId, skillId);
   if (!prereq) return true;
   return isSkillPurchased(classId, prereq.id);

@@ -19,6 +19,7 @@ export type ClassSkillDefinition = {
 export type ClassDefinition = {
   id: PlayerClassId;
   name: string;
+  description: string;
   maxHp: number;
   moveSpeed: number;
   jumpPower: number;

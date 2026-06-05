@@ -142,9 +142,12 @@ const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
 export const enemySpriteKeys = Object.values(ENEMY_CONFIGS)
   .map((config) => config.spriteKey)
   .filter((key): key is string => Boolean(key));
+export const enemyTypes = Object.keys(ENEMY_CONFIGS) as EnemyType[];
+export const enemyAnimationKeys = ['idle', 'walk', 'attack', 'hurt', 'death'] as const;
 
 const ENEMY_ATTACK_COOLDOWN = 760;
 const ENEMY_DAMAGE_INVULNERABILITY_MS = 180;
+const EDGE_TURN_MARGIN = 18;
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
   protected readonly config: EnemyConfig;
@@ -158,6 +161,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   private readonly healthBarBack: Phaser.GameObjects.Rectangle;
   private readonly healthBarFill: Phaser.GameObjects.Rectangle;
   private attackCooldownAt = 0;
+  private patrolMinX = 0;
+  private patrolMaxX = 0;
+  private safeSpawnX = 0;
+  private safeSpawnY = 0;
+  private patrolDirection: -1 | 1 = 1;
+  private hasFallRespawned = false;
+  private hasEmittedDefeat = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, type: EnemyType) {
     super(scene, x, y, 'enemy-placeholder');
@@ -172,32 +182,34 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.setDragX(900);
     this.setMaxVelocity(260, 700);
     this.setSize(this.config.width, this.config.height);
-    this.setOffset((48 - this.config.width) / 2, (48 - this.config.height) / 2);
-    this.setScale(this.config.width / 48, this.config.height / 48);
-    const textureKey = this.config.spriteKey ?? 'enemy-placeholder';
+    this.setOffset((32 - this.config.width) / 2, (32 - this.config.height) / 2);
+    this.setScale(Math.max(1, this.config.width / 32), Math.max(1, this.config.height / 32));
+    const textureKey = this.getAnimationKey('idle');
     if (this.scene.textures.exists(textureKey)) {
       this.setTexture(textureKey);
+      this.play(textureKey, true);
     } else {
       this.setTexture('enemy-placeholder');
       this.setTint(this.config.color);
-      if (this.config.spriteKey) {
-        this.scene.textures.on('addtexture', (texture: Phaser.Textures.Texture) => {
-          if (texture.key === this.config.spriteKey) {
+      this.scene.textures.on('addtexture', (texture: Phaser.Textures.Texture) => {
+          if (this.active && texture.key === textureKey) {
             this.setTexture(texture.key);
             this.clearTint();
+            this.play(texture.key, true);
           }
-        });
-      }
+      });
     }
 
     this.healthBarBack = scene.add.rectangle(x, y - this.config.height / 2 - 20, this.config.width + 6, 6, 0x1f2933);
     this.healthBarBack.setDepth(20);
     this.healthBarFill = scene.add.rectangle(x - (this.config.width + 6) / 2 + 3, y - this.config.height / 2 - 20, this.config.width, 4, 0x7ff0b2);
     this.healthBarFill.setDepth(21);
+
+    this.setPatrolBounds(x - 120, x + 120, x, y);
   }
 
   update(player: Player): void {
-    if (this.isDead || player.getIsDead()) {
+    if (this.isDead || !this.active || player.getIsDead()) {
       this.setVelocity(0, 0);
       return;
     }
@@ -214,14 +226,22 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     const distance = Math.hypot(distanceX, distanceY);
 
     if (distance > this.config.chaseDistance) {
-      this.setVelocityX(0);
+      if (this.config.hover) {
+        this.setVelocityX(0);
+      } else {
+        const movementDirection = this.pickSafeMovementDirection(this.patrolDirection);
+        this.setVelocityX(movementDirection * this.config.speed * this.slowMultiplier * 0.55);
+        this.setFlipX(movementDirection < 0);
+        this.playEnemyAnimation('walk');
+      }
       return;
     }
 
-    const direction = Math.sign(distanceX) || 1;
+    const direction = Math.sign(distanceX) || this.patrolDirection;
 
     if (this.config.ranged && distance < this.config.stopDistance) {
       this.setVelocityX(0);
+      this.playEnemyAnimation('attack');
       if (this.scene.time.now >= this.attackCooldownAt) {
         this.attackCooldownAt = this.scene.time.now + ENEMY_ATTACK_COOLDOWN;
         const projectile = this.scene.add.rectangle(this.x + direction * 26, this.y - 6, 16, 16, 0xffffff);
@@ -234,22 +254,30 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         body.onWorldBounds = true;
 
         this.scene.physics.add.overlap(projectile, player, () => {
+          if (!projectile.active || player.getIsDead()) {
+            return;
+          }
           player.takeDamage(this.config.contactDamage, direction * 180, -80, this.scene.time.now);
           projectile.destroy();
         });
 
         this.scene.time.delayedCall(1400, () => {
-          projectile.destroy();
+          if (projectile.active) {
+            projectile.destroy();
+          }
         });
       }
       return;
     }
 
     if (Math.abs(distanceX) > this.config.stopDistance) {
-      this.setVelocityX(direction * this.config.speed * this.slowMultiplier);
-      this.setFlipX(direction < 0);
+      const movementDirection = this.pickSafeMovementDirection(direction);
+      this.setVelocityX(movementDirection * this.config.speed * this.slowMultiplier);
+      this.setFlipX(movementDirection < 0);
+      this.playEnemyAnimation('walk');
     } else {
       this.setVelocityX(0);
+      this.playEnemyAnimation('idle');
     }
 
     if (this.config.hover) {
@@ -259,7 +287,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   takeDamage(damage: number, knockbackX: number, knockbackY: number, time: number): boolean {
-    if (this.isDead || time < this.damageReadyAt) {
+    if (this.isDead || !this.active || time < this.damageReadyAt) {
       return false;
     }
 
@@ -267,6 +295,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.damageReadyAt = time + ENEMY_DAMAGE_INVULNERABILITY_MS;
     this.setVelocity(knockbackX, knockbackY);
     this.setTint(0xfff0a3);
+    this.playEnemyAnimation('hurt');
     this.scene.events.emit('enemy-damaged', {
       damage,
       x: this.x,
@@ -279,8 +308,9 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     this.scene.time.delayedCall(120, () => {
-      if (!this.isDead) {
-        this.setTint(this.config.color);
+      if (!this.isDead && this.active) {
+        this.restoreNormalTint();
+        this.playEnemyAnimation('idle');
       }
     });
 
@@ -289,19 +319,27 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
   }
 
   applySlow(factor: number, durationMs: number): void {
+    if (this.isDead || !this.active) {
+      return;
+    }
+
     this.slowMultiplier = factor;
     this.setTint(0x9be7ff);
     this.scene.time.delayedCall(durationMs, () => {
       this.slowMultiplier = 1;
-      if (!this.isDead) this.setTint(this.config.color);
+      if (!this.isDead && this.active) this.restoreNormalTint();
     });
   }
 
   applyFreeze(durationMs: number): void {
+    if (this.isDead || !this.active) {
+      return;
+    }
+
     this.frozenUntil = this.scene.time.now + durationMs;
     this.setTint(0xbfeeff);
     this.scene.time.delayedCall(durationMs, () => {
-      if (!this.isDead) this.setTint(this.config.color);
+      if (!this.isDead && this.active) this.restoreNormalTint();
     });
   }
 
@@ -336,16 +374,94 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     return this.isDead;
   }
 
-  private die(): void {
+  setPatrolBounds(minX: number, maxX: number, safeX: number, safeY: number): void {
+    this.patrolMinX = Math.min(minX, maxX);
+    this.patrolMaxX = Math.max(minX, maxX);
+    const hasRoomForMargins = this.patrolMaxX - this.patrolMinX > EDGE_TURN_MARGIN * 2;
+    const safeMinX = hasRoomForMargins ? this.patrolMinX + EDGE_TURN_MARGIN : this.patrolMinX;
+    const safeMaxX = hasRoomForMargins ? this.patrolMaxX - EDGE_TURN_MARGIN : this.patrolMaxX;
+    this.safeSpawnX = Phaser.Math.Clamp(safeX, safeMinX, safeMaxX);
+    this.safeSpawnY = safeY;
+  }
+
+  respawnFromFall(): boolean {
+    if (this.isDead || !this.active || this.hasFallRespawned) {
+      return false;
+    }
+
+    this.hasFallRespawned = true;
+    this.patrolDirection = this.x < (this.patrolMinX + this.patrolMaxX) / 2 ? 1 : -1;
+    this.setPosition(this.safeSpawnX, this.safeSpawnY);
+    this.setVelocity(0, 0);
+    this.setFlipX(this.patrolDirection < 0);
+    this.updateHealthBar();
+    this.playEnemyAnimation('idle');
+    return true;
+  }
+
+  defeatByFall(): void {
+    if (this.isDead || !this.active) {
+      return;
+    }
+
+    this.die(false, false);
+  }
+
+  private pickSafeMovementDirection(preferredDirection: number): -1 | 1 {
+    if (this.config.hover) {
+      return preferredDirection < 0 ? -1 : 1;
+    }
+
+    const body = this.body as Phaser.Physics.Arcade.Body;
+    const halfWidth = body.width / 2;
+    const leftEdge = this.patrolMinX + halfWidth + EDGE_TURN_MARGIN;
+    const rightEdge = this.patrolMaxX - halfWidth - EDGE_TURN_MARGIN;
+    const preferred = preferredDirection < 0 ? -1 : 1;
+
+    if (this.x <= leftEdge) {
+      this.patrolDirection = 1;
+      return 1;
+    }
+
+    if (this.x >= rightEdge) {
+      this.patrolDirection = -1;
+      return -1;
+    }
+
+    const nextX = this.x + preferred * (halfWidth + EDGE_TURN_MARGIN);
+    if (nextX < leftEdge || nextX > rightEdge) {
+      return this.patrolDirection;
+    }
+
+    this.patrolDirection = preferred;
+    return preferred;
+  }
+
+  private die(playFade = true, shouldDropLoot = true): void {
+    if (this.isDead) {
+      return;
+    }
+
     this.isDead = true;
     this.setTint(0x5d6b78);
+    this.playEnemyAnimation('death');
     this.setVelocity(0, 0);
     this.healthBarBack.setVisible(false);
     this.healthBarFill.setVisible(false);
 
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.enable = false;
-    this.dropLoot();
+    if (shouldDropLoot) {
+      this.dropLoot();
+    }
+    this.emitDefeatedOnce();
+
+    if (!playFade) {
+      this.healthBarBack.destroy();
+      this.healthBarFill.destroy();
+      this.destroy();
+      return;
+    }
 
     this.scene.tweens.add({
       targets: this,
@@ -357,9 +473,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.healthBarBack.destroy();
         this.healthBarFill.destroy();
         this.destroy();
-        this.scene.events.emit('enemy-defeated');
       },
     });
+  }
+
+  private emitDefeatedOnce(): void {
+    if (this.hasEmittedDefeat) {
+      return;
+    }
+
+    this.hasEmittedDefeat = true;
+    this.scene.events.emit('enemy-defeated');
   }
 
   private dropLoot(): void {
@@ -403,5 +527,30 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     this.healthBarFill.setPosition(this.x - (this.config.width + 6) / 2 + width / 2, this.y - this.config.height / 2 - 20);
     this.healthBarFill.setSize(width, 4);
     this.healthBarFill.setFillStyle(ratio <= 0.35 ? 0xf87171 : 0x7ff0b2);
+  }
+
+  private getAnimationKey(animation: (typeof enemyAnimationKeys)[number]): string {
+    return `enemy-${this.enemyType}-${animation}`;
+  }
+
+  private playEnemyAnimation(animation: (typeof enemyAnimationKeys)[number]): void {
+    const key = this.getAnimationKey(animation);
+    if (this.scene.anims.exists(key)) {
+      this.play(key, true);
+      return;
+    }
+
+    if (this.scene.textures.exists(key)) {
+      this.setTexture(key);
+    }
+  }
+
+  private restoreNormalTint(): void {
+    if (this.texture.key.startsWith(`enemy-${this.enemyType}-`)) {
+      this.clearTint();
+      return;
+    }
+
+    this.setTint(this.config.color);
   }
 }

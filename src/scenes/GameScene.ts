@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
-import { ClassDefinition, DEFAULT_CLASS_ID, PlayerClassId, getClassDefinition } from '../classes';
-import { Enemy } from '../entities/Enemy';
-import { Player, PlayerAttackPayload } from '../entities/Player';
+import { ClassDefinition, DEFAULT_CLASS_ID, PlayerClassId, classList, getClassDefinition } from '../classes';
+import { Enemy, enemyAnimationKeys, enemyTypes } from '../entities/Enemy';
+import { Player, PlayerAttackPayload, PlayerProjectilePayload } from '../entities/Player';
 import { InputAction, InputSystem } from '../systems/InputSystem';
+import { SaveSystem } from '../systems/SaveSystem';
 import {
   GeneratedStage,
   PlatformDefinition,
@@ -13,12 +14,42 @@ import {
   readSeedFromLocation,
 } from '../systems/StageGenerator';
 
-const SAMURAI_SPRITE_URLS = {
-  idle: new URL('../../assets/sprites/player/samurai/idle.png', import.meta.url).toString(),
-  run: new URL('../../assets/sprites/player/samurai/run.png', import.meta.url).toString(),
-  attack: new URL('../../assets/sprites/player/samurai/attack.png', import.meta.url).toString(),
-  dash: new URL('../../assets/sprites/player/samurai/dash.png', import.meta.url).toString(),
+const PLAYER_ANIMATION_KEYS = ['idle', 'run', 'attack', 'dash'] as const;
+const PLAYER_SPRITE_URLS = Object.fromEntries(
+  classList.map((classDef) => [
+    classDef.id,
+    Object.fromEntries(
+      PLAYER_ANIMATION_KEYS.map((animation) => [
+        animation,
+        new URL(`../../assets/sprites/player/${classDef.id}/${animation}.png`, import.meta.url).toString(),
+      ]),
+    ),
+  ]),
+) as Record<PlayerClassId, Record<(typeof PLAYER_ANIMATION_KEYS)[number], string>>;
+
+const TILE_URLS = {
+  ground: new URL('../../assets/tiles/ground.png', import.meta.url).toString(),
+  ledge: new URL('../../assets/tiles/ledge.png', import.meta.url).toString(),
+  secret: new URL('../../assets/tiles/secret.png', import.meta.url).toString(),
+  background: new URL('../../assets/backgrounds/cavern.png', import.meta.url).toString(),
 };
+
+const TRAP_URLS: Record<TrapKind, string> = {
+  fire: new URL('../../assets/sprites/traps/spikes.png', import.meta.url).toString(),
+  ice: new URL('../../assets/sprites/traps/rune.png', import.meta.url).toString(),
+};
+
+const ENEMY_SPRITE_URLS = Object.fromEntries(
+  enemyTypes.map((enemyType) => [
+    enemyType,
+    Object.fromEntries(
+      enemyAnimationKeys.map((animation) => [
+        animation,
+        new URL(`../../assets/sprites/enemies/${enemyType}/${animation}.png`, import.meta.url).toString(),
+      ]),
+    ),
+  ]),
+) as Record<(typeof enemyTypes)[number], Record<(typeof enemyAnimationKeys)[number], string>>;
 
 type DamagePopupEvent = {
   damage: number;
@@ -49,6 +80,7 @@ export class GameScene extends Phaser.Scene {
   private restartText?: Phaser.GameObjects.Text;
   private nextStageText?: Phaser.GameObjects.Text;
   private redFlash?: Phaser.GameObjects.Rectangle;
+  private stagePlatforms?: Phaser.Physics.Arcade.StaticGroup;
   private skillCooldownUi: Array<{
     id: string;
     label: Phaser.GameObjects.Text;
@@ -68,19 +100,40 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.spritesheet('samurai-idle', SAMURAI_SPRITE_URLS.idle, { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet('samurai-run', SAMURAI_SPRITE_URLS.run, { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet('samurai-attack', SAMURAI_SPRITE_URLS.attack, { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet('samurai-dash', SAMURAI_SPRITE_URLS.dash, { frameWidth: 32, frameHeight: 32 });
+    for (const classDef of classList) {
+      for (const animation of PLAYER_ANIMATION_KEYS) {
+        this.load.spritesheet(`${classDef.id}-${animation}`, PLAYER_SPRITE_URLS[classDef.id][animation], {
+          frameWidth: 32,
+          frameHeight: 32,
+        });
+      }
+    }
+    this.load.image('tile-ground', TILE_URLS.ground);
+    this.load.image('tile-ledge', TILE_URLS.ledge);
+    this.load.image('tile-secret', TILE_URLS.secret);
+    this.load.image('background-cavern', TILE_URLS.background);
+    this.load.image('trap-fire', TRAP_URLS.fire);
+    this.load.image('trap-ice', TRAP_URLS.ice);
+    for (const enemyType of enemyTypes) {
+      for (const animation of enemyAnimationKeys) {
+        this.load.spritesheet(`enemy-${enemyType}-${animation}`, ENEMY_SPRITE_URLS[enemyType][animation], {
+          frameWidth: 32,
+          frameHeight: 32,
+        });
+      }
+    }
     this.createPlaceholderEnemyTexture();
   }
 
   create(data?: GameSceneData): void {
     this.createPlayerAnimations();
+    this.createEnemyAnimations();
 
     this.stageIndex = data?.stageIndex ?? 1;
     this.runSeed = data?.runSeed ?? readSeedFromLocation(window.location) ?? createRunSeed();
-    this.selectedClass = getClassDefinition(data?.selectedClassId ?? DEFAULT_CLASS_ID);
+    const selectedClassId = data?.selectedClassId ?? SaveSystem.getSelectedClassId() ?? DEFAULT_CLASS_ID;
+    SaveSystem.setSelectedClassId(selectedClassId);
+    this.selectedClass = getClassDefinition(selectedClassId);
     this.currentStage = generateStage(this.stageIndex, this.runSeed);
     this.inputSystem = new InputSystem(this);
     this.isGameOver = false;
@@ -90,8 +143,10 @@ export class GameScene extends Phaser.Scene {
     const { worldWidth, worldHeight, start } = this.currentStage;
     this.physics.world.setBounds(0, 0, worldWidth, worldHeight);
     this.cameras.main.setBounds(0, 0, worldWidth, worldHeight);
+    this.createPixelBackground(worldWidth, worldHeight);
 
     const platforms = this.createStageBlockout(this.currentStage.platforms);
+    this.stagePlatforms = platforms;
     this.createGoal(this.currentStage);
 
     this.restartKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.R);
@@ -110,12 +165,14 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.goalZone, this.handleGoalReached, undefined, this);
 
     this.events.off('player-attack', this.handlePlayerAttack, this);
+    this.events.off('player-projectile', this.handlePlayerProjectile, this);
     this.events.off('player-counter', this.handlePlayerCounter, this);
     this.events.off('player-damaged', this.handlePlayerDamaged, this);
     this.events.off('enemy-damaged', this.handleEnemyDamaged, this);
     this.events.off('player-dead', this.handlePlayerDead, this);
     this.events.off('enemy-defeated', this.handleEnemyDefeated, this);
     this.events.on('player-attack', this.handlePlayerAttack, this);
+    this.events.on('player-projectile', this.handlePlayerProjectile, this);
     this.events.on('player-counter', this.handlePlayerCounter, this);
     this.events.on('player-damaged', this.handlePlayerDamaged, this);
     this.events.on('enemy-damaged', this.handleEnemyDamaged, this);
@@ -139,11 +196,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.player?.update(time);
+    this.checkPlayerFallOut();
 
     if (this.player && this.enemies) {
-      for (const enemy of this.enemies.getChildren()) {
-        if (enemy instanceof Enemy) {
+      for (const enemy of [...this.enemies.getChildren()]) {
+        if (enemy instanceof Enemy && enemy.active && !enemy.getIsDead()) {
           enemy.update(this.player);
+          this.rescueEnemyIfOutOfBounds(enemy);
         }
       }
     }
@@ -166,52 +225,74 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createPlayerAnimations(): void {
-    if (this.anims.exists('samurai-idle')) {
-      return;
+    for (const classDef of classList) {
+      this.createPlayerAnimation(`${classDef.id}-idle`, 3, 5, -1);
+      this.createPlayerAnimation(`${classDef.id}-run`, 5, 10, -1);
+      this.createPlayerAnimation(`${classDef.id}-attack`, 5, 18, 0);
+      this.createPlayerAnimation(`${classDef.id}-dash`, 3, 16, -1);
     }
-
-    this.anims.create({
-      key: 'samurai-idle',
-      frames: this.anims.generateFrameNumbers('samurai-idle', { start: 0, end: 3 }),
-      frameRate: 5,
-      repeat: -1,
-    });
-    this.anims.create({
-      key: 'samurai-run',
-      frames: this.anims.generateFrameNumbers('samurai-run', { start: 0, end: 5 }),
-      frameRate: 10,
-      repeat: -1,
-    });
-    this.anims.create({
-      key: 'samurai-attack',
-      frames: this.anims.generateFrameNumbers('samurai-attack', { start: 0, end: 5 }),
-      frameRate: 18,
-      repeat: 0,
-    });
-    this.anims.create({
-      key: 'samurai-dash',
-      frames: this.anims.generateFrameNumbers('samurai-dash', { start: 0, end: 3 }),
-      frameRate: 16,
-      repeat: -1,
-    });
   }
 
   private createStageBlockout(platformDefinitions: PlatformDefinition[]): Phaser.Physics.Arcade.StaticGroup {
     const platforms = this.physics.add.staticGroup();
 
     for (const definition of platformDefinitions) {
-      const platform = this.add.rectangle(
+      const textureKey = `tile-${definition.kind}`;
+      const platform = this.add.tileSprite(
         definition.x,
         definition.y,
         definition.width,
         definition.height,
-        definition.color,
+        textureKey,
       );
+      platform.setDepth(4);
       platforms.add(platform);
     }
 
     platforms.refresh();
     return platforms;
+  }
+
+  private createPixelBackground(worldWidth: number, worldHeight: number): void {
+    const background = this.add.tileSprite(0, 0, worldWidth, worldHeight, 'background-cavern');
+    background.setOrigin(0, 0);
+    background.setDepth(-20);
+  }
+
+  private createPlayerAnimation(key: string, endFrame: number, frameRate: number, repeat: number): void {
+    if (this.anims.exists(key)) {
+      return;
+    }
+
+    this.anims.create({
+      key,
+      frames: this.anims.generateFrameNumbers(key, { start: 0, end: endFrame }),
+      frameRate,
+      repeat,
+    });
+  }
+
+  private createEnemyAnimations(): void {
+    for (const enemyType of enemyTypes) {
+      this.createEnemyAnimation(`enemy-${enemyType}-idle`, 3, 5, -1);
+      this.createEnemyAnimation(`enemy-${enemyType}-walk`, 5, 8, -1);
+      this.createEnemyAnimation(`enemy-${enemyType}-attack`, 4, 12, 0);
+      this.createEnemyAnimation(`enemy-${enemyType}-hurt`, 2, 14, 0);
+      this.createEnemyAnimation(`enemy-${enemyType}-death`, 4, 10, 0);
+    }
+  }
+
+  private createEnemyAnimation(key: string, endFrame: number, frameRate: number, repeat: number): void {
+    if (this.anims.exists(key)) {
+      return;
+    }
+
+    this.anims.create({
+      key,
+      frames: this.anims.generateFrameNumbers(key, { start: 0, end: endFrame }),
+      frameRate,
+      repeat,
+    });
   }
 
   private createStageTraps(traps: TrapDefinition[]): void {
@@ -220,23 +301,23 @@ export class GameScene extends Phaser.Scene {
     }
 
     for (const trap of traps) {
-      const trapRect = this.add.rectangle(
+      const trapSprite = this.add.tileSprite(
         trap.x,
         trap.y,
         trap.width,
         trap.height,
-        trap.kind === 'fire' ? 0xff4d4d : 0x60a5fa,
-        0.64,
+        `trap-${trap.kind}`,
       );
-      trapRect.setDepth(16);
-      this.physics.add.existing(trapRect, false);
-      const body = trapRect.body as Phaser.Physics.Arcade.Body;
+      trapSprite.setDepth(16);
+      this.physics.add.existing(trapSprite, false);
+      const body = trapSprite.body as Phaser.Physics.Arcade.Body;
       body.setAllowGravity(false);
       body.setImmovable(true);
-      trapRect.setData('kind', trap.kind);
-      trapRect.setData('lastTrigger', 0);
+      body.setSize(trap.width, trap.height);
+      trapSprite.setData('kind', trap.kind);
+      trapSprite.setData('lastTrigger', 0);
 
-      this.physics.add.overlap(this.player, trapRect, (_playerObject, trapObject) => {
+      this.physics.add.overlap(this.player, trapSprite, (_playerObject, trapObject) => {
         const trapGameObject = trapObject as Phaser.GameObjects.GameObject;
         const kind = trapGameObject.getData('kind') as TrapKind;
         const last = trapGameObject.getData('lastTrigger') as number;
@@ -252,24 +333,6 @@ export class GameScene extends Phaser.Scene {
         }
       });
 
-      this.physics.add.overlap(this.enemies, trapRect, (enemyObject, trapObject) => {
-        if (!(enemyObject instanceof Enemy)) {
-          return;
-        }
-        const trapGameObject = trapObject as Phaser.GameObjects.GameObject;
-        const kind = trapGameObject.getData('kind') as TrapKind;
-        const last = trapGameObject.getData('lastTrigger') as number;
-        const now = this.time.now;
-        if (now < last + 700) {
-          return;
-        }
-        trapGameObject.setData('lastTrigger', now);
-        if (kind === 'fire') {
-          enemyObject.takeDamage(8, 0, -50, now);
-        } else {
-          enemyObject.applySlow(0.7, 1000);
-        }
-      });
     }
   }
 
@@ -277,7 +340,17 @@ export class GameScene extends Phaser.Scene {
     const enemies = this.add.group();
 
     for (const spawn of stage.enemySpawns) {
-      enemies.add(new Enemy(this, spawn.x, spawn.y, spawn.type));
+      const enemy = new Enemy(this, spawn.x, spawn.y, spawn.type);
+      const patrolPlatform = this.findNearestSafePlatform(spawn.x);
+      if (patrolPlatform) {
+        const body = enemy.body as Phaser.Physics.Arcade.Body;
+        const left = patrolPlatform.x - patrolPlatform.width / 2 + body.width / 2 + 8;
+        const right = patrolPlatform.x + patrolPlatform.width / 2 - body.width / 2 - 8;
+        const safeX = Phaser.Math.Clamp(spawn.x, left + 16, right - 16);
+        const safeY = patrolPlatform.y - patrolPlatform.height / 2 - body.height / 2 - 8;
+        enemy.setPatrolBounds(left, right, safeX, safeY);
+      }
+      enemies.add(enemy);
     }
 
     this.remainingEnemies = stage.enemySpawns.length;
@@ -301,7 +374,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addControlsText(): void {
-    const text = this.add.text(16, 512, 'A/D or Arrow: Move  Space/Up: Jump  Shift: Dash  J/K/L: Skills', {
+    const text = this.add.text(16, 512, 'A/D or Arrow: Move  Space/Up: Jump  F/J: Attack  Shift: Dash  Z/X/C or K/L/I: Skills', {
       color: '#cbd5e1',
       fontFamily: 'monospace',
       fontSize: '13px',
@@ -358,6 +431,10 @@ export class GameScene extends Phaser.Scene {
     this.resolvePlayerAttack(payload);
   }
 
+  private handlePlayerProjectile(payload: PlayerProjectilePayload): void {
+    this.spawnPlayerProjectile(payload);
+  }
+
   private handlePlayerCounter(payload: PlayerAttackPayload): void {
     this.showCounterEffect(payload.hitbox.x, payload.hitbox.y);
     this.resolvePlayerAttack(payload);
@@ -370,21 +447,147 @@ export class GameScene extends Phaser.Scene {
     }
 
     const hitEnemies = new Set<Enemy>();
-    const overlap = this.physics.add.overlap(payload.hitbox, this.enemies, (_hitbox, target) => {
-      if (!(target instanceof Enemy) || hitEnemies.has(target)) {
+    const hitEnemy = (_hitbox: unknown, target: unknown): void => {
+      if (!(target instanceof Enemy) || !target.active || target.getIsDead() || hitEnemies.has(target)) {
         return;
       }
 
       hitEnemies.add(target);
       const direction = this.player?.getFacing() ?? 1;
       target.takeDamage(payload.damage, direction * payload.knockbackX, payload.knockbackY, this.time.now);
+      this.applyAttackStatus(target, payload.status, payload.statusDurationMs);
       this.showAttackEffect(target.x, target.y, payload.effectColor);
-    });
+    };
+    const overlap = this.physics.add.overlap(payload.hitbox, this.enemies, hitEnemy);
+    this.physics.overlap(payload.hitbox, this.enemies, hitEnemy);
 
     this.time.delayedCall(payload.durationMs, () => {
       overlap.destroy();
-      payload.hitbox.destroy();
+      if (payload.hitbox.active) {
+        payload.hitbox.destroy();
+      }
     });
+  }
+
+  private spawnPlayerProjectile(payload: PlayerProjectilePayload): void {
+    if (!this.enemies) {
+      return;
+    }
+
+    const projectile = this.add.rectangle(payload.x, payload.y, payload.width, payload.height, payload.color, 0.92);
+    projectile.setDepth(34);
+    this.physics.add.existing(projectile);
+    const body = projectile.body as Phaser.Physics.Arcade.Body;
+    const collisionWidth = Math.max(payload.width, payload.kind === 'bullet' ? 24 : payload.width);
+    const collisionHeight = Math.max(payload.height, payload.kind === 'bullet' ? 12 : payload.height);
+    body.setAllowGravity(payload.allowGravity);
+    body.setVelocity(payload.velocityX, payload.velocityY);
+    body.setSize(collisionWidth, collisionHeight);
+    body.setImmovable(!payload.allowGravity);
+    body.setBounce(0);
+
+    const flare = this.add.circle(payload.x, payload.y, Math.max(payload.width, payload.height), payload.color, 0.28);
+    flare.setDepth(33);
+    this.tweens.add({
+      targets: flare,
+      alpha: 0,
+      scaleX: 1.9,
+      scaleY: 1.9,
+      duration: 180,
+      ease: 'Quad.easeOut',
+      onComplete: () => flare.destroy(),
+    });
+
+    let enemyOverlap: Phaser.Physics.Arcade.Collider | undefined;
+    let terrainCollider: Phaser.Physics.Arcade.Collider | undefined;
+
+    const cleanup = (): void => {
+      enemyOverlap?.destroy();
+      terrainCollider?.destroy();
+    };
+
+    const explode = (x: number, y: number): void => {
+      if (!projectile.active) {
+        return;
+      }
+      cleanup();
+      projectile.destroy();
+      if (!payload.explosionRadius || payload.explosionRadius <= 0) {
+        return;
+      }
+      this.resolveAreaDamage(x, y, payload.explosionRadius, payload);
+      this.showExplosionEffect(x, y, payload.explosionRadius, payload.color);
+    };
+
+    const hitEnemy = (_projectile: unknown, target: unknown): void => {
+      if (!(target instanceof Enemy) || !target.active || target.getIsDead()) {
+        return;
+      }
+
+      if (payload.explosionRadius && payload.explosionRadius > 0) {
+        explode(projectile.x, projectile.y);
+        return;
+      }
+
+      const direction = Math.sign(payload.velocityX) || 1;
+      target.takeDamage(payload.damage, direction * payload.knockbackX, payload.knockbackY, this.time.now);
+      this.applyAttackStatus(target, payload.status, payload.statusDurationMs);
+      this.showAttackEffect(target.x, target.y, payload.color);
+      cleanup();
+      projectile.destroy();
+    };
+    enemyOverlap = this.physics.add.overlap(projectile, this.enemies, hitEnemy);
+
+    if (this.stagePlatforms) {
+      terrainCollider = this.physics.add.collider(projectile, this.stagePlatforms, () => {
+        explode(projectile.x, projectile.y);
+      });
+    }
+
+    this.physics.overlap(projectile, this.enemies, hitEnemy);
+
+    this.time.delayedCall(payload.durationMs, () => {
+      if (projectile.active) {
+        explode(projectile.x, projectile.y);
+      } else {
+        cleanup();
+      }
+    });
+  }
+
+  private resolveAreaDamage(x: number, y: number, radius: number, payload: PlayerProjectilePayload): void {
+    if (!this.enemies) {
+      return;
+    }
+
+    const direction = Math.sign(payload.velocityX) || this.player?.getFacing() || 1;
+    for (const target of this.enemies.getChildren()) {
+      if (!(target instanceof Enemy) || !target.active || target.getIsDead()) {
+        continue;
+      }
+      if (Phaser.Math.Distance.Between(x, y, target.x, target.y) > radius) {
+        continue;
+      }
+
+      target.takeDamage(payload.damage, direction * payload.knockbackX, payload.knockbackY, this.time.now);
+      this.applyAttackStatus(target, payload.status, payload.statusDurationMs);
+    }
+  }
+
+  private applyAttackStatus(enemy: Enemy, status?: PlayerAttackPayload['status'], durationMs = 900): void {
+    if (!status) {
+      return;
+    }
+
+    if (status === 'freeze') {
+      enemy.applyFreeze(durationMs);
+    } else if (status === 'slow') {
+      enemy.applySlow(0.45, durationMs);
+    } else if (status === 'bleed') {
+      enemy.applyBleed(9, durationMs);
+    } else if (status === 'burn') {
+      enemy.applyBleed(12, durationMs);
+    }
   }
 
   private handlePlayerEnemyContact(
@@ -513,6 +716,26 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private showExplosionEffect(x: number, y: number, radius: number, color: number): void {
+    const flash = this.add.circle(x, y, Math.max(20, radius * 0.44), color, 0.42);
+    const core = this.add.circle(x, y, Math.max(8, radius * 0.16), 0xfff1a8, 0.72);
+    flash.setDepth(37);
+    core.setDepth(38);
+
+    this.tweens.add({
+      targets: [flash, core],
+      alpha: 0,
+      scaleX: 2.1,
+      scaleY: 2.1,
+      duration: 220,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        flash.destroy();
+        core.destroy();
+      },
+    });
+  }
+
   private createSkillCooldownUi(): Array<{
     id: string;
     label: Phaser.GameObjects.Text;
@@ -601,7 +824,7 @@ export class GameScene extends Phaser.Scene {
     this.nextStageText.on('pointerdown', () => {
       this.scene.restart({
         stageIndex: this.stageIndex + 1,
-        runSeed: this.runSeed,
+        runSeed: createRunSeed(),
         selectedClassId: this.selectedClass?.id,
       });
     });
@@ -638,14 +861,23 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.input.addPointer(8);
     const skills = this.selectedClass.skills;
-    this.createTouchButton('left', '<', 58, 464, 60, 56, 0x263447);
-    this.createTouchButton('right', '>', 132, 464, 60, 56, 0x263447);
-    this.createTouchButton('jump', 'JMP', 820, 464, 72, 56, 0x244c3a);
-    this.createTouchButton('dash', 'DASH', 900, 464, 72, 56, 0x214b63);
-    this.createTouchButton('skill1', 'S1', 642, 472, 58, 48, 0x3d355f, skills.skill1.name);
-    this.createTouchButton('skill2', 'S2', 708, 472, 58, 48, 0x3c4a66, skills.skill2.name);
-    this.createTouchButton('ultimate', 'ULT', 774, 472, 58, 48, 0x683a3a, skills.ultimate.name);
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const coarsePointer = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+    const isTouchLayout = viewportWidth < 760 || this.sys.game.device.input.touch || coarsePointer;
+    if (!isTouchLayout) {
+      return;
+    }
+    const alpha = 0.76;
+    this.createTouchButton('left', '<', 70, 462, 72, 62, 0x263447, undefined, alpha);
+    this.createTouchButton('right', '>', 158, 462, 72, 62, 0x263447, undefined, alpha);
+    this.createTouchButton('jump', 'JMP', 632, 462, 66, 56, 0x244c3a, undefined, alpha);
+    this.createTouchButton('attack', 'ATK', 708, 462, 66, 56, 0x5b3b2d, undefined, alpha);
+    this.createTouchButton('dash', 'DSH', 784, 462, 66, 56, 0x214b63, undefined, alpha);
+    this.createTouchButton('skill1', 'S1', 676, 394, 64, 52, 0x3d355f, skills.skill1.name, alpha);
+    this.createTouchButton('skill2', 'S2', 752, 394, 64, 52, 0x3c4a66, skills.skill2.name, alpha);
+    this.createTouchButton('ultimate', 'ULT', 832, 394, 72, 52, 0x683a3a, skills.ultimate.name, alpha);
   }
 
   private createTouchButton(
@@ -657,17 +889,19 @@ export class GameScene extends Phaser.Scene {
     height: number,
     color: number,
     tooltip?: string,
+    alpha = 0.72,
   ): void {
     if (!this.inputSystem) {
       return;
     }
 
-    const back = this.add.rectangle(x, y, width, height, color, 0.72);
+    const back = this.add.rectangle(x, y, width, height, color, alpha);
+    const activePointers = new Set<number>();
     const text = this.add.text(x, y, label, {
       align: 'center',
       color: '#f8fafc',
       fontFamily: 'monospace',
-      fontSize: label.length > 3 ? '12px' : '14px',
+      fontSize: label.length > 3 ? '12px' : '15px',
       fontStyle: 'bold',
     });
 
@@ -678,13 +912,25 @@ export class GameScene extends Phaser.Scene {
     text.setOrigin(0.5);
     back.setInteractive({ useHandCursor: true });
 
-    const press = (): void => {
+    const press = (pointer: Phaser.Input.Pointer): void => {
+      if (activePointers.has(pointer.id)) {
+        return;
+      }
+
+      activePointers.add(pointer.id);
       this.inputSystem?.press(action);
       back.setAlpha(0.96);
     };
-    const release = (): void => {
+    const release = (pointer: Phaser.Input.Pointer): void => {
+      if (!activePointers.has(pointer.id)) {
+        return;
+      }
+
+      activePointers.delete(pointer.id);
       this.inputSystem?.release(action);
-      back.setAlpha(0.72);
+      if (activePointers.size === 0) {
+        back.setAlpha(alpha);
+      }
     };
 
     back.on('pointerdown', press);
@@ -718,5 +964,38 @@ export class GameScene extends Phaser.Scene {
       runSeed: this.runSeed,
       selectedClassId: this.selectedClass?.id,
     });
+  }
+
+  private rescueEnemyIfOutOfBounds(enemy: Enemy): void {
+    if (!this.currentStage || enemy.getIsDead() || !enemy.active || enemy.y <= this.currentStage.worldHeight - 48) {
+      return;
+    }
+
+    if (enemy.respawnFromFall()) {
+      return;
+    }
+
+    enemy.defeatByFall();
+  }
+
+  private checkPlayerFallOut(): void {
+    if (!this.currentStage || !this.player || this.isGameOver || this.player.getIsDead()) {
+      return;
+    }
+
+    const fallLimitY = this.currentStage.worldHeight - 18;
+    const cameraBottom = this.cameras.main.scrollY + this.cameras.main.height + 96;
+    if (this.player.y < fallLimitY && this.player.y < cameraBottom) {
+      return;
+    }
+
+    this.player.defeatByFall();
+  }
+
+  private findNearestSafePlatform(x: number): PlatformDefinition | undefined {
+    return this.currentStage?.platforms
+      .filter((platform) => platform.kind === 'ground' || platform.kind === 'ledge')
+      .slice()
+      .sort((left, right) => Math.abs(left.x - x) - Math.abs(right.x - x))[0];
   }
 }
