@@ -4,12 +4,30 @@ export type PlatformDefinition = {
   width: number;
   height: number;
   color: number;
-  kind: 'ground' | 'ledge';
+  kind: 'ground' | 'ledge' | 'secret';
 };
 
 export type PointDefinition = {
   x: number;
   y: number;
+};
+
+export type EnemyType = 'slime' | 'goblin' | 'archer' | 'flyer' | 'elite' | 'knight' | 'mage' | 'midboss' | 'boss' | 'finalBoss';
+
+export type EnemySpawnDefinition = PointDefinition & {
+  type: EnemyType;
+};
+
+export type ItemSpawnDefinition = PointDefinition & {
+  itemId: string;
+};
+
+export type TrapKind = 'fire' | 'ice';
+
+export type TrapDefinition = PointDefinition & {
+  width: number;
+  height: number;
+  kind: TrapKind;
 };
 
 export type StageDifficulty = {
@@ -28,8 +46,10 @@ export type GeneratedStage = {
   start: PointDefinition;
   goal: PointDefinition;
   platforms: PlatformDefinition[];
-  slimeSpawns: PointDefinition[];
+  enemySpawns: EnemySpawnDefinition[];
+  itemSpawns: ItemSpawnDefinition[];
   difficulty: StageDifficulty;
+  trapSpawns: TrapDefinition[];
 };
 
 const WORLD_HEIGHT = 720;
@@ -108,6 +128,8 @@ export function generateStage(stageIndex: number, runSeed: string): GeneratedSta
     y: lastPlatform.y - lastPlatform.height / 2 - 36,
   };
 
+  const itemSpawns = createItemSpawns(platforms, difficulty, normalizedStageIndex, random, goal);
+
   return {
     runSeed,
     stageSeed,
@@ -117,7 +139,9 @@ export function generateStage(stageIndex: number, runSeed: string): GeneratedSta
     start,
     goal,
     platforms,
-    slimeSpawns: createSlimeSpawns(groundPlatforms, difficulty.enemyCount, random),
+    enemySpawns: createEnemySpawns(groundPlatforms, difficulty.enemyCount, normalizedStageIndex, random, goal),
+    itemSpawns,
+    trapSpawns: createTrapSpawns(groundPlatforms, difficulty, normalizedStageIndex, random),
     difficulty,
   };
 }
@@ -150,16 +174,35 @@ function createLedge(
   };
 }
 
-function createSlimeSpawns(
+function createEnemySpawns(
   groundPlatforms: PlatformDefinition[],
   enemyCount: number,
+  stageIndex: number,
   random: RandomSource,
-): PointDefinition[] {
+  goal: PointDefinition,
+): EnemySpawnDefinition[] {
   const spawnablePlatforms = groundPlatforms.slice(1, -1);
-  const spawns: PointDefinition[] = [];
+  const spawns: EnemySpawnDefinition[] = [];
 
   if (spawnablePlatforms.length === 0) {
     return spawns;
+  }
+
+  const availableTypes: EnemyType[] = stageIndex >= 5
+    ? ['slime', 'goblin', 'archer', 'flyer', 'elite', 'knight', 'mage']
+    : stageIndex === 4
+    ? ['slime', 'goblin', 'archer', 'flyer', 'elite', 'knight']
+    : stageIndex === 3
+    ? ['slime', 'goblin', 'archer', 'knight']
+    : ['slime', 'goblin'];
+
+  if (stageIndex === 3 || stageIndex === 4 || stageIndex === 5) {
+    const bossType: EnemyType = stageIndex === 3 ? 'midboss' : stageIndex === 5 ? 'finalBoss' : 'boss';
+    spawns.push({
+      x: goal.x - 100,
+      y: goal.y - 32,
+      type: bossType,
+    });
   }
 
   for (let index = 0; index < enemyCount; index += 1) {
@@ -169,14 +212,92 @@ function createSlimeSpawns(
     const right = platform.x + platform.width / 2 - 54;
     const laneOffset = lane * 34;
     const x = PhaserMathClamp(random.int(Math.floor(left), Math.floor(right)) + laneOffset, left, right);
+    const type = random.pick(availableTypes);
 
     spawns.push({
       x,
       y: platform.y - platform.height / 2 - 24,
+      type,
     });
   }
 
   return spawns;
+}
+
+function createItemSpawns(
+  platforms: PlatformDefinition[],
+  difficulty: StageDifficulty,
+  stageIndex: number,
+  random: RandomSource,
+  goal: PointDefinition,
+): ItemSpawnDefinition[] {
+  if (stageIndex < 2 || random.next() >= 0.45) {
+    return [];
+  }
+
+  const groundPlatforms = platforms.filter((platform) => platform.kind === 'ground').slice(1, -1);
+  if (groundPlatforms.length === 0) {
+    return [];
+  }
+
+  const spawnPlatform = groundPlatforms[Math.floor(random.next() * groundPlatforms.length)];
+  if (!spawnPlatform) {
+    return [];
+  }
+
+  const secretWidth = Math.min(160, spawnPlatform.width * 0.5);
+  const secretPlatform: PlatformDefinition = {
+    x: spawnPlatform.x + random.int(-48, 48),
+    y: spawnPlatform.y - random.int(126, 176),
+    width: secretWidth,
+    height: LEDGE_HEIGHT,
+    color: 0x7c3aed,
+    kind: 'secret',
+  };
+
+  platforms.push(secretPlatform);
+
+  const itemTypes = ['potion', 'speedTonic', 'strengthElixir'];
+  const itemId = itemTypes[random.int(0, itemTypes.length - 1)];
+
+  return [{
+    x: secretPlatform.x,
+    y: secretPlatform.y - secretPlatform.height / 2 - 18,
+    itemId,
+  }];
+}
+
+function createTrapSpawns(
+  groundPlatforms: PlatformDefinition[],
+  difficulty: StageDifficulty,
+  stageIndex: number,
+  random: RandomSource,
+): TrapDefinition[] {
+  const traps: TrapDefinition[] = [];
+  if (stageIndex < 2) {
+    return traps;
+  }
+
+  const spawnable = groundPlatforms.slice(1, -1);
+  if (spawnable.length === 0) {
+    return traps;
+  }
+
+  const trapCount = Math.min(3, Math.max(1, Math.floor(stageIndex / 2)));
+  for (let i = 0; i < trapCount; i += 1) {
+    const platform = spawnable[i % spawnable.length];
+    const width = random.int(60, Math.min(110, platform.width - 64));
+    const x = PhaserMathClamp(
+      random.int(Math.floor(platform.x - platform.width / 2 + width / 2 + 20), Math.floor(platform.x + platform.width / 2 - width / 2 - 20)),
+      platform.x - platform.width / 2 + width / 2 + 20,
+      platform.x + platform.width / 2 - width / 2 - 20,
+    );
+    const y = platform.y - platform.height / 2 - 12;
+    const kind: TrapKind = random.next() < 0.5 ? 'fire' : 'ice';
+    traps.push({ x, y, width, height: 24, kind });
+  }
+
+  return traps;
 }
 
 function createRandomSource(seed: number): RandomSource {

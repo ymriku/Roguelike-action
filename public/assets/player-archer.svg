@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#0f172a" />
+  <circle cx="32" cy="24" r="15" fill="#34d399" />
+  <line x1="18" y1="44" x2="46" y2="20" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+  <line x1="20" y1="44" x2="44" y2="20" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" />
+  <text x="32" y="58" font-family="monospace" font-size="10" fill="#f8fafc" text-anchor="middle">ARCHER</text>
+</svg>

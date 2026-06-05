@@ -1,6 +1,18 @@
 import Phaser from 'phaser';
+import { ClassSelectionScene } from './scenes/ClassSelectionScene';
 import { GameScene } from './scenes/GameScene';
+import { InventoryScene } from './scenes/InventoryScene';
+import { MetaShopScene } from './scenes/MetaShopScene';
+import { SkillTreeScene } from './scenes/SkillTreeScene';
 import './styles.css';
+
+const originalTextFactory = Phaser.GameObjects.GameObjectFactory.prototype.text;
+Phaser.GameObjects.GameObjectFactory.prototype.text = function (x, y, text, style) {
+  const patchedStyle = style && style.fontFamily === 'monospace'
+    ? { ...style, fontFamily: 'DotGothic16, monospace' }
+    : style;
+  return originalTextFactory.call(this, x, y, text, patchedStyle);
+};
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -20,7 +32,7 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [GameScene],
+  scene: [ClassSelectionScene, GameScene, InventoryScene, MetaShopScene, SkillTreeScene],
 };
 
 new Phaser.Game(config);

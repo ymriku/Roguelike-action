@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#111827" />
+  <circle cx="32" cy="24" r="15" fill="#f87171" />
+  <path d="M20 44l24-20" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+  <path d="M24 42l28-4" stroke="#fbbf24" stroke-width="4" stroke-linecap="round" />
+  <text x="32" y="58" font-family="monospace" font-size="10" fill="#f8fafc" text-anchor="middle">DRAGOON</text>
+</svg>
